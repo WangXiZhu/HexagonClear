@@ -73,7 +73,7 @@ function drawHexagonPattern() {
         const x = centerX + (hexWidth * 0.75 + hexagonSpacing) * hex.q;
         const y = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * hex.r + hex.q);
         
-        // 使用更鲜明的金色
+        // 使用更鲜艳的金色
         drawHexagon(x, y, hexagonSize, '#D4AF37');
     }
 
@@ -107,6 +107,7 @@ let score = 0;
 let coinsCollected = 0;
 let draggableHexagons = []; // 存储可拖拽的六边形
 let isDragging = false;
+let isDraggingMoved = false; // 标记是否在拖拽过程中移动了
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 let hexGroup = []; // 存储作为一个整体的六边形组
@@ -114,7 +115,12 @@ let isRotating = false; // 是否正在旋转
 let rotationAngle = 0; // 当前旋转角度
 let targetRotationAngle = 0; // 目标旋转角度
 let rotationStartTime = 0; // 旋转开始时间
+let lastRotationTime = 0; // 最后一次旋转完成的时间
 const rotationDuration = 300; // 旋转动画持续时间(毫秒)
+const rotationCooldown = 500; // 旋转冷却时间(毫秒)
+let clickStartX = 0; // 记录点击开始位置X
+let clickStartY = 0; // 记录点击开始位置Y
+let clickStartTime = 0; // 记录点击开始时间
 
 // 生成随机数字的六边形
 function generateRandomHexagons() {
@@ -269,12 +275,115 @@ function canPlaceHexGroupAt(gridPositions) {
     return true;
 }
 
+// 鼠标按下事件处理
+function handleMouseDown(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // 如果正在旋转，不处理点击事件
+    if (isRotating) return;
+    
+    // 检查是否点击在六边形组上
+    if (isPointInHexGroup(mouseX, mouseY)) {
+        // 记录初始点击位置和时间，用于区分点击和拖拽
+        clickStartX = mouseX;
+        clickStartY = mouseY;
+        clickStartTime = Date.now();
+        
+        // 检查是否在旋转冷却时间内
+        const timeSinceLastRotation = Date.now() - lastRotationTime;
+        if (timeSinceLastRotation < rotationCooldown) {
+            // 在冷却时间内，强制设置为拖拽模式
+            isDraggingMoved = true;
+        } else {
+            isDraggingMoved = false;
+        }
+        
+        isDragging = true;
+        
+        // 计算鼠标与六边形组第一个六边形的偏移
+        dragOffsetX = mouseX - hexGroup[0].x;
+        dragOffsetY = mouseY - hexGroup[0].y;
+    }
+}
+
+// 鼠标移动事件处理
+function handleMouseMove(e) {
+    if (isDragging) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        // 计算移动距离
+        const moveDistance = Math.sqrt(
+            Math.pow(mouseX - clickStartX, 2) + 
+            Math.pow(mouseY - clickStartY, 2)
+        );
+        
+        // 如果移动距离超过阈值，则标记为已移动
+        if (moveDistance > 5) {
+            isDraggingMoved = true;
+        }
+        
+        // 计算第一个六边形的新位置
+        const firstHex = hexGroup[0];
+        const newX = mouseX - dragOffsetX;
+        const newY = mouseY - dragOffsetY;
+        
+        // 移动第一个六边形
+        firstHex.x = newX;
+        firstHex.y = newY;
+        
+        // 如果有第二个六边形，根据保存的相对位置关系移动它
+        if (hexGroup.length > 1) {
+            const secondHex = hexGroup[1];
+            
+            // 使用保存的相对位置关系
+            if (secondHex.relativeToFirst) {
+                secondHex.x = firstHex.x + secondHex.relativeToFirst.x;
+                secondHex.y = firstHex.y + secondHex.relativeToFirst.y;
+            } else {
+                // 如果没有保存相对位置关系，使用原始偏移
+                const offsetX = secondHex.originalX - firstHex.originalX;
+                const offsetY = secondHex.originalY - firstHex.originalY;
+                secondHex.x = newX + offsetX;
+                secondHex.y = newY + offsetY;
+            }
+        }
+        
+        // 重新绘制UI
+        drawUI();
+    }
+}
+
 // 鼠标释放事件处理
 function handleMouseUp(e) {
     if (isDragging) {
         const rect = canvas.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
+        
+        // 计算从点击开始到释放的时间
+        const clickEndTime = Date.now();
+        const clickDuration = clickEndTime - clickStartTime;
+        
+        // 计算总移动距离
+        const totalMoveDistance = Math.sqrt(
+            Math.pow(mouseX - clickStartX, 2) + 
+            Math.pow(mouseY - clickStartY, 2)
+        );
+        
+        // 如果是两个六边形，且未放置，且没有明显拖动，且点击时间短，则视为点击操作，触发旋转
+        if (hexGroup.length === 2 && 
+            !hexGroup[0].isPlaced && 
+            !isDraggingMoved && 
+            totalMoveDistance < 10 && 
+            clickDuration < 300) {
+            rotateHexGroup();
+            isDragging = false;
+            return;
+        }
         
         // 获取六边形组的网格位置
         const gridPositions = getGridPositionsForHexGroup(mouseX - dragOffsetX, mouseY - dragOffsetY);
@@ -463,122 +572,6 @@ function isPointInHexagon(x, y, hexX, hexY, size) {
     return distance <= size;
 }
 
-// 鼠标按下事件处理
-function handleMouseDown(e) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    // 如果正在旋转，不处理点击事件
-    if (isRotating) return;
-    
-    // 检查是否点击在六边形组上
-    if (isPointInHexGroup(mouseX, mouseY)) {
-        // 如果是两个六边形，且未放置，则旋转
-        if (hexGroup.length === 2 && !hexGroup[0].isPlaced) {
-            rotateHexGroup();
-            return;
-        }
-        
-        isDragging = true;
-        
-        // 计算鼠标与六边形组第一个六边形的偏移
-        dragOffsetX = mouseX - hexGroup[0].x;
-        dragOffsetY = mouseY - hexGroup[0].y;
-    }
-}
-
-// 旋转六边形组
-function rotateHexGroup() {
-    if (hexGroup.length !== 2 || isRotating) return;
-    
-    isRotating = true;
-    rotationStartTime = Date.now();
-    rotationAngle = 0;
-    targetRotationAngle = Math.PI / 3; // 60度
-    
-    // 计算旋转中心（两个六边形的中点）
-    const centerX = (hexGroup[0].x + hexGroup[1].x) / 2;
-    const centerY = (hexGroup[0].y + hexGroup[1].y) / 2;
-    
-    // 保存原始位置，用于动画
-    for (const hex of hexGroup) {
-        hex.rotationCenterX = centerX;
-        hex.rotationCenterY = centerY;
-        hex.originalRotationX = hex.x - centerX;
-        hex.originalRotationY = hex.y - centerY;
-    }
-    
-    // 开始旋转动画
-    requestAnimationFrame(animateRotation);
-}
-
-// 旋转动画
-function animateRotation() {
-    const currentTime = Date.now();
-    const elapsedTime = currentTime - rotationStartTime;
-    const progress = Math.min(elapsedTime / rotationDuration, 1);
-    
-    // 使用缓动函数使动画更自然
-    const easedProgress = easeInOutQuad(progress);
-    rotationAngle = easedProgress * targetRotationAngle;
-    
-    // 更新六边形位置
-    for (const hex of hexGroup) {
-        // 应用旋转变换
-        const cos = Math.cos(rotationAngle);
-        const sin = Math.sin(rotationAngle);
-        hex.x = hex.rotationCenterX + (hex.originalRotationX * cos - hex.originalRotationY * sin);
-        hex.y = hex.rotationCenterY + (hex.originalRotationX * sin + hex.originalRotationY * cos);
-    }
-    
-    // 重绘UI
-    drawUI();
-    
-    // 如果动画未完成，继续请求下一帧
-    if (progress < 1) {
-        requestAnimationFrame(animateRotation);
-    } else {
-        // 动画完成，更新相对位置
-        if (hexGroup.length === 2) {
-            // 交换两个六边形的相对位置
-            const temp = {
-                x: hexGroup[0].originalX,
-                y: hexGroup[0].originalY
-            };
-            hexGroup[0].originalX = hexGroup[1].originalX;
-            hexGroup[0].originalY = hexGroup[1].originalY;
-            hexGroup[1].originalX = temp.x;
-            hexGroup[1].originalY = temp.y;
-        }
-        
-        isRotating = false;
-    }
-}
-
-// 缓动函数，使动画更自然
-function easeInOutQuad(t) {
-    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-}
-
-// 鼠标移动事件处理
-function handleMouseMove(e) {
-    if (isDragging) {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        
-        // 移动整个六边形组
-        for (const hex of hexGroup) {
-            hex.x = hex.originalX + (mouseX - dragOffsetX - hexGroup[0].originalX);
-            hex.y = hex.originalY + (mouseY - dragOffsetY - hexGroup[0].originalY);
-        }
-        
-        // 重新绘制UI
-        drawUI();
-    }
-}
-
 // 绘制游戏UI函数
 function drawUI() {
     // 清除画布
@@ -678,24 +671,22 @@ function getGridPositionsForHexGroup(x, y) {
     
     // 如果有两个六边形，需要计算第二个六边形的相对位置
     if (hexGroup.length > 1) {
-        // 计算第二个六边形相对于第一个的偏移（使用q,r坐标）
         const secondHex = hexGroup[1];
-        const relativeQ = 1; // 假设第二个六边形在第一个的右侧
-        const relativeR = 0; // 同一行
         
-        // 计算第二个六边形的网格坐标
-        const secondQ = firstGridPos.q + relativeQ;
-        const secondR = firstGridPos.r + relativeR;
+        // 使用当前的相对位置关系（考虑旋转后的位置）
+        const secondHexX = secondHex.x + offsetX;
+        const secondHexY = secondHex.y + offsetY;
+        const secondGridPos = getGridPositionForHex(secondHexX, secondHexY);
+        
+        if (!secondGridPos) {
+            console.log("第二个六边形没有找到有效网格位置");
+            return [];
+        }
         
         // 检查这个位置是否在网格范围内
-        if (Math.abs(secondQ) <= gridRadius && Math.abs(secondR) <= gridRadius && Math.abs(secondQ + secondR) <= gridRadius) {
-            // 计算像素坐标
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const secondX = centerX + (hexWidth * 0.75 + hexagonSpacing) * secondQ;
-            const secondY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * secondR + secondQ);
-            
-            const secondGridPos = { q: secondQ, r: secondR, x: secondX, y: secondY };
+        if (Math.abs(secondGridPos.q) <= gridRadius && 
+            Math.abs(secondGridPos.r) <= gridRadius && 
+            Math.abs(secondGridPos.q + secondGridPos.r) <= gridRadius) {
             gridPositions.push(secondGridPos);
         } else {
             console.log("第二个六边形超出网格范围");
@@ -829,4 +820,94 @@ function handleRestartClick(e) {
         // 重新开始游戏
         initGame();
     }
+}
+
+// 旋转六边形组
+function rotateHexGroup() {
+    if (hexGroup.length !== 2 || isRotating) return;
+    
+    isRotating = true;
+    rotationStartTime = Date.now();
+    rotationAngle = 0;
+    targetRotationAngle = Math.PI / 3; // 60度
+    
+    // 计算旋转中心（两个六边形的的中点）
+    const centerX = (hexGroup[0].x + hexGroup[1].x) / 2;
+    const centerY = (hexGroup[0].y + hexGroup[1].y) / 2;
+    
+    // 保存原始位置，用于动画
+    for (const hex of hexGroup) {
+        hex.rotationCenterX = centerX;
+        hex.rotationCenterY = centerY;
+        hex.originalRotationX = hex.x - centerX;
+        hex.originalRotationY = hex.y - centerY;
+    }
+    
+    // 开始旋转动画
+    requestAnimationFrame(animateRotation);
+}
+
+// 旋转动画
+function animateRotation() {
+    const currentTime = Date.now();
+    const elapsedTime = currentTime - rotationStartTime;
+    const progress = Math.min(elapsedTime / rotationDuration, 1);
+    
+    // 使用缓动函数使动画更自然
+    const easedProgress = easeInOutQuad(progress);
+    rotationAngle = easedProgress * targetRotationAngle;
+    
+    // 更新六边形位置
+    for (const hex of hexGroup) {
+        // 应用旋转变换
+        const cos = Math.cos(rotationAngle);
+        const sin = Math.sin(rotationAngle);
+        hex.x = hex.rotationCenterX + (hex.originalRotationX * cos - hex.originalRotationY * sin);
+        hex.y = hex.rotationCenterY + (hex.originalRotationX * sin + hex.originalRotationY * cos);
+    }
+    
+    // 重绘UI
+    drawUI();
+    
+    // 如果动画未完成，继续请求下一帧
+    if (progress < 1) {
+        requestAnimationFrame(animateRotation);
+    } else {
+        // 动画完成，更新相对位置
+        if (hexGroup.length === 2) {
+            // 更新六边形的实际位置和原始位置
+            for (const hex of hexGroup) {
+                hex.originalX = hex.x;
+                hex.originalY = hex.y;
+            }
+            
+            // 保存旋转后的相对位置关系
+            hexGroup[0].relativeToSecond = {
+                x: hexGroup[0].x - hexGroup[1].x,
+                y: hexGroup[0].y - hexGroup[1].y
+            };
+            
+            hexGroup[1].relativeToFirst = {
+                x: hexGroup[1].x - hexGroup[0].x,
+                y: hexGroup[1].y - hexGroup[0].y
+            };
+        }
+        
+        // 重置旋转状态
+        isRotating = false;
+        
+        // 设置旋转冷却时间戳
+        lastRotationTime = Date.now();
+        
+        // 重置点击状态，防止下次拖拽时错误触发旋转
+        clickStartX = 0;
+        clickStartY = 0;
+        clickStartTime = 0;
+        isDraggingMoved = true; // 设置为true，防止下次点击立即触发旋转
+    }
+}
+
+// 缓动函数，使动画更自然
+function easeInOutQuad(t) {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
 }
