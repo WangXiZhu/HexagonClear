@@ -196,6 +196,23 @@ function drawRedFrame() {
 
 // 绘制可拖拽的六边形
 function drawDraggableHexagons() {
+    // 先绘制已放置的六边形
+    for (const key in placedHexagons) {
+        const hex = placedHexagons[key];
+        if (hex.isPlaced) {
+            // 绘制六边形
+            drawHexagon(hex.x, hex.y, hexagonSize, hex.color);
+            
+            // 绘制数字
+            ctx.font = 'bold 30px Arial';
+            ctx.fillStyle = '#006400'; // 深绿色
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(hex.number.toString(), hex.x, hex.y);
+        }
+    }
+    
+    // 再绘制未放置的六边形
     for (const hex of draggableHexagons) {
         if (!hex.isPlaced) {
             // 绘制六边形
@@ -279,8 +296,14 @@ function handleMouseUp(e) {
                 }
             }
             
-            // 放置成功后，立即生成新的六边形
-            generateRandomHexagons();
+            // 检查并合并相同数字的六边形
+            checkAndMergeHexagons();
+            
+            // 检查游戏是否结束
+            if (!checkGameOver()) {
+                // 游戏未结束，生成新的六边形
+                generateRandomHexagons();
+            }
         } else {
             // 如果不能放置，将六边形组恢复到原始位置
             for (const hex of hexGroup) {
@@ -297,138 +320,108 @@ function handleMouseUp(e) {
     }
 }
 
-// 获取六边形组的网格位置
-function getGridPositionsForHexGroup(x, y) {
-    if (hexGroup.length === 0) return [];
+// 检查并合并相同数字的六边形
+function checkAndMergeHexagons() {
+    let mergeHappened = true;
     
-    // 计算拖拽的中心点与第一个六边形的偏移
-    const offsetX = x - hexGroup[0].x;
-    const offsetY = y - hexGroup[0].y;
-    
-    // 获取每个六边形的网格位置
-    const gridPositions = [];
-    
-    for (const hex of hexGroup) {
-        // 计算当前六边形的位置
-        const hexX = hex.x + offsetX;
-        const hexY = hex.y + offsetY;
+    // 循环检查合并，直到没有新的合并发生
+    while (mergeHappened) {
+        mergeHappened = false;
         
-        // 获取最近的网格位置
-        const gridPos = getGridPositionForHex(hexX, hexY);
-        gridPositions.push(gridPos);
-    }
-    
-    // 确保所有位置都有效
-    if (gridPositions.some(pos => pos === null)) {
-        console.log("有无效的网格位置");
-    }
-    
-    return gridPositions;
-}
-
-// 获取六边形在网格中的位置
-function getGridPositionForHex(x, y) {
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    
-    // 增加检测范围，使吸附更容易
-    const detectionRadius = hexagonSize * 1.5;
-    
-    // 遍历所有可能的网格位置
-    for (let q = -gridRadius; q <= gridRadius; q++) {
-        for (let r = -gridRadius; r <= gridRadius; r++) {
-            if (Math.abs(q + r) <= gridRadius) {
-                // 计算该网格位置的像素坐标
-                const hexX = centerX + (hexWidth * 0.75 + hexagonSpacing) * q;
-                const hexY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * r + q);
+        // 存储需要合并的六边形组
+        let mergeGroups = [];
+        
+        // 创建一个已访问的六边形集合
+        let visited = new Set();
+        
+        // 遍历所有已放置的六边形
+        for (const key in placedHexagons) {
+            // 如果已经访问过，则跳过
+            if (visited.has(key)) continue;
+            
+            const hex = placedHexagons[key];
+            const number = hex.number;
+            
+            // 使用广度优先搜索找到所有相连的相同数字六边形
+            let queue = [key];
+            let group = [key];
+            visited.add(key);
+            
+            while (queue.length > 0) {
+                const currentKey = queue.shift();
+                const currentHex = placedHexagons[currentKey];
                 
-                // 检查拖拽的六边形是否在这个网格位置附近
-                const distance = Math.sqrt(Math.pow(x - hexX, 2) + Math.pow(y - hexY, 2));
-                if (distance <= detectionRadius) {
-                    return { q, r, x: hexX, y: hexY };
-                }
-            }
-        }
-    }
-    
-    return null;
-}
-
-// 检查六边形组是否可以放置在网格中
-function canPlaceHexGroupAt(gridPositions) {
-    // 检查是否有位置
-    if (gridPositions.length === 0) {
-        console.log("没有网格位置");
-        return false;
-    }
-    
-    // 检查所有位置是否都有效
-    if (!gridPositions.every(pos => pos !== null)) {
-        console.log("有无效的网格位置");
-        return false;
-    }
-    
-    // 检查位置是否已被占用
-    for (const pos of gridPositions) {
-        const key = `${pos.q},${pos.r}`;
-        if (placedHexagons[key]) {
-            console.log("位置已被占用", key);
-            return false; // 位置已被占用
-        }
-    }
-    
-    console.log("可以放置", gridPositions);
-    return true;
-}
-
-// 鼠标释放事件处理
-function handleMouseUp(e) {
-    if (isDragging) {
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        
-        // 获取六边形组的网格位置
-        const gridPositions = getGridPositionsForHexGroup(mouseX - dragOffsetX, mouseY - dragOffsetY);
-        
-        // 检查是否可以放置
-        if (gridPositions.length > 0 && canPlaceHexGroupAt(gridPositions)) {
-            // 放置六边形组到网格位置
-            for (let i = 0; i < hexGroup.length; i++) {
-                const hex = hexGroup[i];
-                const gridPos = gridPositions[i];
+                // 获取相邻的六边形
+                const neighbors = getNeighbors(currentHex.gridQ, currentHex.gridR);
                 
-                if (gridPos) {
-                    // 确保有有效的网格位置才进行吸附
-                    hex.x = gridPos.x;
-                    hex.y = gridPos.y;
-                    hex.isPlaced = true;
+                // 检查相邻的六边形
+                for (const neighbor of neighbors) {
+                    const neighborKey = `${neighbor.q},${neighbor.r}`;
+                    const neighborHex = placedHexagons[neighborKey];
                     
-                    // 记录放置的网格坐标，用于游戏逻辑
-                    hex.gridQ = gridPos.q;
-                    hex.gridR = gridPos.r;
-                    
-                    // 将六边形添加到已放置的六边形字典中
-                    placedHexagons[`${gridPos.q},${gridPos.r}`] = hex;
+                    // 如果找到相邻且数字相同的六边形，且未访问过
+                    if (neighborHex && neighborHex.number === number && !visited.has(neighborKey)) {
+                        queue.push(neighborKey);
+                        group.push(neighborKey);
+                        visited.add(neighborKey);
+                    }
                 }
             }
             
-            // 放置成功后，立即生成新的六边形
-            generateRandomHexagons();
-        } else {
-            // 如果不能放置，将六边形组恢复到原始位置
-            for (const hex of hexGroup) {
-                hex.x = hex.originalX;
-                hex.y = hex.originalY;
+            // 如果找到3个或更多相同数字的相连六边形，添加到合并组
+            if (group.length >= 3) {
+                mergeGroups.push(group);
             }
         }
         
-        // 重置拖拽状态
-        isDragging = false;
-        
-        // 重新绘制UI
-        drawUI();
+        // 合并每个组中的六边形
+        for (const group of mergeGroups) {
+            if (group.length >= 3) {
+                // 选择最后一个六边形作为合并结果
+                const lastKey = group[group.length - 1];
+                const lastHex = placedHexagons[lastKey];
+                
+                // 记录合并前的位置信息
+                const mergedQ = lastHex.gridQ;
+                const mergedR = lastHex.gridR;
+                
+                // 增加最后一个六边形的数字
+                lastHex.number += 1;
+                
+                // 更新分数
+                score += lastHex.number * group.length; // 根据合并的数量增加分数
+                
+                // 移除其他六边形
+                for (let i = 0; i < group.length - 1; i++) {
+                    delete placedHexagons[group[i]];
+                }
+                
+                console.log(`合并了${group.length}个数字${lastHex.number-1}，形成了数字${lastHex.number}`);
+                
+                // 标记发生了合并，需要再次检查
+                mergeHappened = true;
+            }
+        }
     }
+}
+
+// 获取六边形的相邻位置
+function getNeighbors(q, r) {
+    // 六边形的六个相邻方向
+    const directions = [
+        {q: 1, r: 0},   // 右
+        {q: 0, r: 1},   // 右下
+        {q: -1, r: 1},  // 左下
+        {q: -1, r: 0},  // 左
+        {q: 0, r: -1},  // 左上
+        {q: 1, r: -1}   // 右上
+    ];
+    
+    // 计算所有相邻位置
+    return directions.map(dir => ({
+        q: q + dir.q,
+        r: r + dir.r
+    }));
 }
 
 // 触摸事件处理（移动设备支持）
@@ -571,3 +564,182 @@ window.onload = function() {
         initGame();
     }
 };
+
+// 获取六边形组的网格位置
+function getGridPositionsForHexGroup(x, y) {
+    if (hexGroup.length === 0) return [];
+    
+    // 计算拖拽的中心点与第一个六边形的偏移
+    const offsetX = x - hexGroup[0].x;
+    const offsetY = y - hexGroup[0].y;
+    
+    // 获取每个六边形的网格位置
+    const gridPositions = [];
+    
+    // 先获取第一个六边形的网格位置
+    const firstHex = hexGroup[0];
+    const firstHexX = firstHex.x + offsetX;
+    const firstHexY = firstHex.y + offsetY;
+    const firstGridPos = getGridPositionForHex(firstHexX, firstHexY);
+    
+    if (!firstGridPos) {
+        console.log("第一个六边形没有找到有效网格位置");
+        return [];
+    }
+    
+    gridPositions.push(firstGridPos);
+    
+    // 如果有两个六边形，需要计算第二个六边形的相对位置
+    if (hexGroup.length > 1) {
+        // 计算第二个六边形相对于第一个的偏移（使用q,r坐标）
+        const secondHex = hexGroup[1];
+        const relativeQ = 1; // 假设第二个六边形在第一个的右侧
+        const relativeR = 0; // 同一行
+        
+        // 计算第二个六边形的网格坐标
+        const secondQ = firstGridPos.q + relativeQ;
+        const secondR = firstGridPos.r + relativeR;
+        
+        // 检查这个位置是否在网格范围内
+        if (Math.abs(secondQ) <= gridRadius && Math.abs(secondR) <= gridRadius && Math.abs(secondQ + secondR) <= gridRadius) {
+            // 计算像素坐标
+            const centerX = canvas.width / 2;
+            const centerY = canvas.height / 2;
+            const secondX = centerX + (hexWidth * 0.75 + hexagonSpacing) * secondQ;
+            const secondY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * secondR + secondQ);
+            
+            const secondGridPos = { q: secondQ, r: secondR, x: secondX, y: secondY };
+            gridPositions.push(secondGridPos);
+        } else {
+            console.log("第二个六边形超出网格范围");
+            return []; // 如果第二个六边形超出范围，返回空数组
+        }
+    }
+    
+    return gridPositions;
+}
+
+// 获取六边形在网格中的位置
+function getGridPositionForHex(x, y) {
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    // 大幅增加检测范围，确保能够检测到网格位置
+    const detectionRadius = hexagonSize * 5;
+    
+    // 记录最近的网格位置
+    let closestPos = null;
+    let minDistance = Infinity;
+    
+    // 遍历所有可能的网格位置
+    for (let q = -gridRadius; q <= gridRadius; q++) {
+        for (let r = -gridRadius; r <= gridRadius; r++) {
+            if (Math.abs(q + r) <= gridRadius) {
+                // 计算该网格位置的像素坐标
+                const hexX = centerX + (hexWidth * 0.75 + hexagonSpacing) * q;
+                const hexY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * r + q);
+                
+                // 计算距离
+                const distance = Math.sqrt(Math.pow(x - hexX, 2) + Math.pow(y - hexY, 2));
+                
+                // 更新最近的位置
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestPos = { q, r, x: hexX, y: hexY, distance };
+                }
+            }
+        }
+    }
+    
+    // 如果找到了足够近的位置，返回它
+    if (closestPos && closestPos.distance <= detectionRadius) {
+        console.log("找到网格位置:", closestPos.q, closestPos.r, "距离:", closestPos.distance);
+        return closestPos;
+    }
+    
+    // 如果没有足够近的位置，但有最近的位置，也返回它（强制吸附）
+    if (closestPos) {
+        console.log("强制吸附到最近网格位置:", closestPos.q, closestPos.r, "距离:", closestPos.distance);
+        return closestPos;
+    }
+    
+    console.log("未找到网格位置，坐标:", x, y);
+    return null;
+}
+
+// 检查游戏是否结束（所有格子都被占用）
+function checkGameOver() {
+    // 计算网格中的总格子数
+    const totalCells = 1 + 3 * gridRadius * (gridRadius + 1);
+    
+    // 计算已占用的格子数
+    const occupiedCells = Object.keys(placedHexagons).length;
+    
+    // 如果所有格子都被占用，游戏结束
+    if (occupiedCells >= totalCells) {
+        // 显示游戏结束信息
+        showGameOverMessage();
+        return true;
+    }
+    
+    return false;
+}
+
+// 显示游戏结束信息
+function showGameOverMessage() {
+    // 绘制半透明背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 绘制游戏结束文本
+    ctx.font = 'bold 48px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('游戏结束', canvas.width / 2, canvas.height / 2 - 50);
+    
+    // 显示最终分数
+    ctx.font = 'bold 36px Arial';
+    ctx.fillText(`最终运势: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+    
+    // 显示重新开始按钮
+    ctx.fillStyle = '#4CAF50';
+    const buttonWidth = 200;
+    const buttonHeight = 60;
+    const buttonX = canvas.width / 2 - buttonWidth / 2;
+    const buttonY = canvas.height / 2 + 100;
+    
+    // 绘制按钮
+    ctx.fillRect(buttonX, buttonY, buttonWidth, buttonHeight);
+    
+    // 绘制按钮文本
+    ctx.font = 'bold 24px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('重新开始', canvas.width / 2, buttonY + buttonHeight / 2);
+    
+    // 添加点击事件监听器
+    canvas.addEventListener('click', handleRestartClick);
+}
+
+// 处理重新开始按钮点击
+function handleRestartClick(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // 按钮位置
+    const buttonWidth = 200;
+    const buttonHeight = 60;
+    const buttonX = canvas.width / 2 - buttonWidth / 2;
+    const buttonY = canvas.height / 2 + 100;
+    
+    // 检查点击是否在按钮上
+    if (mouseX >= buttonX && mouseX <= buttonX + buttonWidth &&
+        mouseY >= buttonY && mouseY <= buttonY + buttonHeight) {
+        // 移除事件监听器
+        canvas.removeEventListener('click', handleRestartClick);
+        
+        // 重新开始游戏
+        initGame();
+    }
+}
