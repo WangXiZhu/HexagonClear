@@ -326,6 +326,34 @@ function getGridPositionsForHexGroup(x, y) {
     return gridPositions;
 }
 
+// 获取六边形在网格中的位置
+function getGridPositionForHex(x, y) {
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    // 增加检测范围，使吸附更容易
+    const detectionRadius = hexagonSize * 1.5;
+    
+    // 遍历所有可能的网格位置
+    for (let q = -gridRadius; q <= gridRadius; q++) {
+        for (let r = -gridRadius; r <= gridRadius; r++) {
+            if (Math.abs(q + r) <= gridRadius) {
+                // 计算该网格位置的像素坐标
+                const hexX = centerX + (hexWidth * 0.75 + hexagonSpacing) * q;
+                const hexY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * r + q);
+                
+                // 检查拖拽的六边形是否在这个网格位置附近
+                const distance = Math.sqrt(Math.pow(x - hexX, 2) + Math.pow(y - hexY, 2));
+                if (distance <= detectionRadius) {
+                    return { q, r, x: hexX, y: hexY };
+                }
+            }
+        }
+    }
+    
+    return null;
+}
+
 // 检查六边形组是否可以放置在网格中
 function canPlaceHexGroupAt(gridPositions) {
     // 检查是否有位置
@@ -435,6 +463,66 @@ function isPointInHexagon(x, y, hexX, hexY, size) {
     // 简化的检测：使用距离检测
     const distance = Math.sqrt(Math.pow(x - hexX, 2) + Math.pow(y - hexY, 2));
     return distance <= size;
+}
+
+// 鼠标按下事件处理
+function handleMouseDown(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // 检查是否点击在六边形组上
+    if (isPointInHexGroup(mouseX, mouseY)) {
+        isDragging = true;
+        
+        // 计算鼠标与六边形组第一个六边形的偏移
+        dragOffsetX = mouseX - hexGroup[0].x;
+        dragOffsetY = mouseY - hexGroup[0].y;
+    }
+}
+
+// 鼠标移动事件处理
+function handleMouseMove(e) {
+    if (isDragging) {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        // 移动整个六边形组
+        for (const hex of hexGroup) {
+            hex.x = hex.originalX + (mouseX - dragOffsetX - hexGroup[0].originalX);
+            hex.y = hex.originalY + (mouseY - dragOffsetY - hexGroup[0].originalY);
+        }
+        
+        // 重新绘制UI
+        drawUI();
+    }
+}
+
+// 绘制游戏UI函数
+function drawUI() {
+    // 清除画布
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 设置背景色为淡黄色
+    canvas.style.backgroundColor = '#FFF8DC';
+    
+    // 绘制顶部分数栏
+    ctx.fillStyle = 'rgba(210, 180, 140, 0.7)';
+    ctx.fillRect(0, 0, canvas.width, 50);
+    
+    // 绘制分数文本
+    ctx.font = 'bold 24px Arial';
+    ctx.fillStyle = '#8B0000'; // 深红色
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('运势: ' + score, 20, 25);
+    
+    // 绘制六边形网格
+    drawHexagonPattern();
+    
+    // 绘制可拖拽的六边形
+    drawDraggableHexagons();
 }
 
 // 初始化游戏
