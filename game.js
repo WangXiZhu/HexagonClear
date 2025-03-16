@@ -129,7 +129,7 @@ function generateRandomHexagons() {
     hexGroup = [];
     
     // 随机决定生成1个或2个六边形
-    const count = Math.floor(Math.random() * 2) + 1;
+    const count = 2 || Math.floor(Math.random() * 2) + 1;
     
     // 红框区域的位置（底部中央）
     const centerX = canvas.width / 2;
@@ -388,8 +388,11 @@ function handleMouseUp(e) {
         // 获取六边形组的网格位置
         const gridPositions = getGridPositionsForHexGroup(mouseX - dragOffsetX, mouseY - dragOffsetY);
         
-        // 检查是否可以放置
-        if (gridPositions.length > 0 && canPlaceHexGroupAt(gridPositions)) {
+        console.log("网格位置数量:", gridPositions.length, "六边形组数量:", hexGroup.length);
+        
+        // 检查是否可以放置 - 确保网格位置数量与六边形组数量相同
+        if (gridPositions.length === hexGroup.length && canPlaceHexGroupAt(gridPositions)) {
+            console.log("放置六边形组到网格位置");
             // 放置六边形组到网格位置
             for (let i = 0; i < hexGroup.length; i++) {
                 const hex = hexGroup[i];
@@ -419,6 +422,7 @@ function handleMouseUp(e) {
                 generateRandomHexagons();
             }
         } else {
+            console.log("不能放置，恢复到原始位置");
             // 如果不能放置，将六边形组恢复到原始位置
             for (const hex of hexGroup) {
                 hex.x = hex.originalX;
@@ -667,6 +671,13 @@ function getGridPositionsForHexGroup(x, y) {
         return [];
     }
     
+    // 检查第一个位置是否已被占用
+    const firstKey = `${firstGridPos.q},${firstGridPos.r}`;
+    if (placedHexagons[firstKey]) {
+        console.log("第一个六边形位置已被占用", firstKey);
+        return []; // 如果第一个位置已被占用，直接返回空数组
+    }
+    
     gridPositions.push(firstGridPos);
     
     // 如果有两个六边形，需要计算第二个六边形的相对位置
@@ -680,7 +691,14 @@ function getGridPositionsForHexGroup(x, y) {
         
         if (!secondGridPos) {
             console.log("第二个六边形没有找到有效网格位置");
-            return [];
+            return []; // 如果第二个六边形没有有效位置，整体返回空数组
+        }
+        
+        // 检查第二个位置是否已被占用
+        const secondKey = `${secondGridPos.q},${secondGridPos.r}`;
+        if (placedHexagons[secondKey]) {
+            console.log("第二个六边形位置已被占用", secondKey);
+            return []; // 如果第二个位置已被占用，整体返回空数组
         }
         
         // 检查这个位置是否在网格范围内
@@ -690,8 +708,20 @@ function getGridPositionsForHexGroup(x, y) {
             gridPositions.push(secondGridPos);
         } else {
             console.log("第二个六边形超出网格范围");
-            return []; // 如果第二个六边形超出范围，返回空数组
+            return []; // 如果第二个六边形超出范围，整体返回空数组
         }
+
+        // 检查secondGridPos和firstGridPos位置不能一样
+        if (secondGridPos.q === firstGridPos.q && secondGridPos.r === firstGridPos.r) {
+            console.log("第二个六边形位置与第一个六边形位置相同");
+            return []; // 如果第二个六边形位置与第一个六边形位置相同，整体返回空数组
+        }
+    }
+    
+    // 确保当有两个六边形时，返回的网格位置也必须是两个
+    if (hexGroup.length === 2 && gridPositions.length !== 2) {
+        console.log("六边形组数量与网格位置数量不匹配");
+        return [];
     }
     
     return gridPositions;
@@ -703,7 +733,7 @@ function getGridPositionForHex(x, y) {
     const centerY = canvas.height / 2;
     
     // 大幅增加检测范围，确保能够检测到网格位置
-    const detectionRadius = hexagonSize * 5;
+    const detectionRadius = hexagonSize / 4;
     
     // 记录最近的网格位置
     let closestPos = null;
@@ -717,6 +747,7 @@ function getGridPositionForHex(x, y) {
                 const hexX = centerX + (hexWidth * 0.75 + hexagonSpacing) * q;
                 const hexY = centerY + (hexHeight / 2 + hexagonSpacing) * (2 * r + q);
                 
+                // console.log('hexX: ', hexX, ' hexY: ', hexY)
                 // 计算距离
                 const distance = Math.sqrt(Math.pow(x - hexX, 2) + Math.pow(y - hexY, 2));
                 
@@ -736,10 +767,10 @@ function getGridPositionForHex(x, y) {
     }
     
     // 如果没有足够近的位置，但有最近的位置，也返回它（强制吸附）
-    if (closestPos) {
-        console.log("强制吸附到最近网格位置:", closestPos.q, closestPos.r, "距离:", closestPos.distance);
-        return closestPos;
-    }
+    // if (closestPos) {
+    //     console.log("强制吸附到最近网格位置:", closestPos.q, closestPos.r, "距离:", closestPos.distance);
+    //     return closestPos;
+    // }
     
     console.log("未找到网格位置，坐标:", x, y);
     return null;
